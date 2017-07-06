@@ -10,6 +10,7 @@ import os
 import sys
 import commands
 import re
+import yaml
 reload(sys)
 sys.setdefaultencoding('utf-8')
 
@@ -74,15 +75,38 @@ def add_category_information(cate3s,params):
         
     params['item_first_cate_cd'] = '-'.join(cate1s)
     params['item_second_cate_cd'] = '-'.join(cate2s)
-    params['item_third_cate_cd'] = cate1s
+    params['item_third_cate_cd'] = cate3s
     params['scope_desc'] = '-'.join(descs)
     
     return params
 
 
+def add_scope_id(params):
+    params['scope_id'] = '%s_%s_%s_%s_%s_%s_%s' %
+    (params['item_first_cate_cd'],
+     params['item_second_cate_cd'],
+     params['item_third_cate_cd'],
+     params['self_pop'],
+      params['scope_type'],
+      params['scope_desc'],
+      params['item_type'])
+    
+    return params
 
+def add_log_file(params):
+    params['log_file'] = params['worker']['dir'] + '/logs/'
+    + params['EndDate'] + '/' + params['item_third_cate_cd']
+    + '.log'
+    
+    return params
 
-
+def create_local_path(params):
+    local_path = '/input/' + params['EndDate'] + '/' + params['item_third_cate_cd']
+    if not os.path.exists(local_path):
+        os.makedirs(local_path)
+    log_path = params['wordker']['dir'] + '/logs/' + params['EndDate']
+    if not os.path.exists(log_path):
+        os.makedirs(log_path)
 
 
 
@@ -239,9 +263,70 @@ def fetch_app_ai_slct_match(params):
 
 
 def fetch_jd_tmall_brand_mapping(params):
+    local_path = 'input/'+params['EndDate']+'/'+params['item_third_cate_cd']
+    query = '''
+    set hive.cli.print.header=true;
+    select jdstdbrandname, tmstdbrandname from app.app_sys_determined_jd_tmall_mapping
+    where dt = '%s' and jdcategoryid3 in (%s)
+    and status == 1;
+    ''' % (params['EndDate'], str(params['item_third_cate_cd']).replace('-',','))
     
+    query = query.replace('\n','')
+    cmd = 'hive -e "%s" > %s/jd_tmall_brand_mapping' % (query, local_path)
+    print(cmd)
+    (status, output) = commands.getstatusoutput(cmd)
+    if status == 0:
+        print('download jd_tmall_brand_mapping success!')
+    else:
+        print('download jd_tmall_brand_mapping failed! \n' + output +'\n')   
+    return status
+
+def fetch_app_aicm_jd_std_brand_da(params);:
+    local_path = 'input/' + params['EndDate']
+    query = '''
+    set hive.cli.print.header=true;
+    select * from app.app_aicm_jd_std_brand_da 
+    where dt = '%s'
+    ''' % (params['EndDate'])
+    query = query.replace('\n','')
+    cmd = 'hive -e "%s" > %s/app_aicm_jd_std_brand_da' % (query, local_path)
+    print(cmd)
+    (status, output) = commands.getstatusoutput(cmd)
+    if status == 0:
+        print('download aicm_jd_std_brand_da success!')
+    else:
+        print('download aicm_jd_std_brand_da failed! \n' + output + '\n')
+    return status
+
+
+
+def new_month(params):
+    local_file = 'input/' + params['EndDate'] +'/app_aicm_jd_std_brand_da' 
+    if os.path.isfile(local_file):
+        return False
+    else:
+        return True
     
 
+def create_param(params):
+    local_path = 'params/' + 'sku_' + params['item_third_cate_cd']+'.yaml'
+    stream = file(local_path, 'w')
+    yaml.safe_dump(params, stream, allow_unicode=True, default_flow_style=False)
+    
+    return local_path
+
+def create_param_brand(params):
+    local_path = 'params/' + 'brand_' + params['item_third_cate_cd'] + '.yaml'
+    params['scope_id'] = params['scope_id'].replace('_sku','_brand')
+    params['item_type'] = 'brand'
+    stream = file(local_path, 'w')
+    yaml.safe_dump(params,stream, allow_unicode=True, default_flow_style=False)
+    return local_path
+
+
+
+def run_task_local(params):
+    
 
 
 
