@@ -262,6 +262,46 @@ def fetch_app_ai_slct_match(params):
     return status
 
 
+
+
+
+
+
+
+
+
+
+def fetch_app_ai_slct_sku_price(params):
+    local_path = 'input/' + params['EndDate']+'/'+params['item_third_cate_cd']
+    query = '''
+    hive set.cli.print.header=true;
+    select a.item_sku_id,a.item_first_cate_cd,a.item_second_cate_cd,
+    a.item_third_cate_cd,b.mean_price as price 
+    from (select item_sku_id,item_first_cate_cd,item_second_cate_cd,item_third_cate_cd 
+    from gdm.gdm_m03_item_sku_da where dt = '%s' and item_third_cate_cd in (%s))a 
+    join (select sku_id, avg(jd_prc)as mean_price 
+    from gdm.gdm_m03_item_sku_price_da group by sku_id) b on a.item_sku_id ==b.sku_id
+    ''' % (params['EndDate'],str(params['item_third_cate_cd']).replace('-',','))
+    query = query.replace('\n','')
+    cmd = 'hive -e "%s" > %s/sku_price' % (query,local_path)
+    print(cmd)
+    (status,output) = commands.getstatusoutput()
+    if status == 0:
+        print('download sku_price success!')
+    else:
+        print('download sku_price failed! \n' + output + '\n')
+    return status
+    
+    
+    
+    
+   
+    
+
+
+
+
+
 def fetch_jd_tmall_brand_mapping(params):
     local_path = 'input/'+params['EndDate']+'/'+params['item_third_cate_cd']
     query = '''
@@ -321,12 +361,26 @@ def create_param_brand(params):
     params['item_type'] = 'brand'
     stream = file(local_path, 'w')
     yaml.safe_dump(params,stream, allow_unicode=True, default_flow_style=False)
+    
     return local_path
 
 
 
 def run_task_local(params):
+    work_dir = params['worker']['dir']
+    item_third_cate_cd = params['item_third_cate_cd']
+    lvl = params['scope_type']
     
+    
+    #本机执行shell命令
+    cmd = 'python %s/computation_pipe.py %s %s' % (work_dir, item_third_cate_cd, lvl)
+    (status, output) = commands.getstatusoutput(cmd)
+    if status == 0:
+        print('computation task done!')
+    else:
+        print('computation task failed: \n' + output + '\n')
+        
+    return params
 
 
 
