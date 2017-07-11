@@ -13,16 +13,16 @@ import re
 import os
 
 
-os.chdir('E:/code/ai_slct_algorithm_9919')
+#os.chdir('E:/code/ai_slct_algorithm_9919')
 
 
 #build MAPE function
-def mean_absolute_percentage_error(y,p):
-   
+def mean_absolute_percentage_error(y,p):   
     return np.mean(np.abs((y-p)/y))
 
 #import jd attributes table
-app_ai_slct_attributes = params['worker']['dir']+'/input/'+params['EndDate']+'/'+params['item_third_cate_cd']+'/app_ai_slct_attributes'
+app_ai_slct_attributes = params['worker']['dir']+'/input/'+params['EndDate']+'/' +\
++ params['item_third_cate_cd']+'/app_ai_slct_attributes'
 attrs =  pd.read_table('app_ai_slct_attributes',sep = '\t', encoding = 'utf-8')
 attrs0 = attrs[attrs['web_id'] == 0] 
 attrs1 = attrs[attrs['web_id'] == 1] 
@@ -65,17 +65,14 @@ for col in a_web.columns.difference(['sku_id','web_id']):
 
 
 #2import sku_price table
-gdm_m04_gdm_m04 = params['worker']['dir']+'/input/'+params['EndDate']+'/'+params['item_third_cate_cd']+'/gdm_m04_ord_det_sum'
+gdm_m04_gdm_m04 = params['worker']['dir']+'/input/'+params['EndDate']+'/'+\
++params['item_third_cate_cd']+'/gdm_m04_ord_det_sum'
 gdm_m04_ord_det_sum = pd.read_table('gdm_m04_ord_det_sum', sep='\t',encoding='utf-8')
 gdm_m04_ord_det_sum['sku_id'] = gdm_m04_ord_det_sum['item_sku_id']
 gdm_m04_ord_det_sum = gdm_m04_ord_det_sum.groupby(['sku_id']).agg({'before_prefr_amount':'sum','sale_qtty':'sum'})
 gdm_m04_ord_det_sum = gdm_m04_ord_det_sum.reset_index()
 gdm_m04_ord_det_sum['mean_price'] = gdm_m04_ord_det_sum['before_prefr_amount']/gdm_m04_ord_det_sum['sale_qtty']
 gdm_m04_ord_det_sum.drop(['before_prefr_amount','sale_qtty'], axis = 1, inplace = True)
-
-
-
-
 
 
 '''
@@ -116,7 +113,7 @@ jd_pop['mean_price'] = jd_pop['mean_price'].apply(lambda x:
 #handle high cardinality of brand feature using kmeans clustering
 from sklearn.cluster import KMeans
 X = jd_pop[['mean_price',u'品牌']]
-kmeans = KMeans(n_clusters = 20, random_state = 0).fit(X)
+kmeans = KMeans(n_clusters = 11, random_state = 0).fit(X)
 jd_pop[u'品牌'] = kmeans.labels_
 
 '''
@@ -132,7 +129,8 @@ jd = jd_pop[jd_pop['web_id']==0]
 pop = jd_pop[jd_pop['web_id'] == 1]
 
 #import profit table
-app_cfo_profit_loss_b2c_det = params['worker']['dir']+'/input/'+params['EndDate']+'/'+params['item_third_cate_cd']+'/app_cfo_profit_loss_b2c_det'
+app_cfo_profit_loss_b2c_det = params['worker']['dir']+'/input/'+params['EndDate']+'/' +\
++params['item_third_cate_cd']+'/app_cfo_profit_loss_b2c_det'
 sku_profit = pd.read_table('app_cfo_profit_loss_b2c_det', sep = '\t', encoding = 'utf-8')
 sku_profit['sku_id'] = sku_profit['item_sku_id']
 sku_profit.drop(['dt','item_third_cate_name','item_sku_id','cost_tax',
@@ -147,14 +145,12 @@ sku_profit_2 = sku_profit[sku_profit['gmv'] <= -1 ]
 sku_profit = pd.concat([sku_profit_1,sku_profit_2],ignore_index = True)
 
 
-
-
 #make the profit_rate column
 sku_profit['profit_rate'] = (sku_profit['net_profit']/sku_profit['gmv'])*100
 sku_profit = sku_profit[sku_profit['net_profit'] < sku_profit['gmv']]
 sku_profit.drop(['net_profit','gmv'], axis =1, inplace = True)
 
-sku_profit = sku_profit[sku_profit['profit_rate'] > -50]
+sku_profit = sku_profit[sku_profit['profit_rate'] > -70]
 sku_profit = sku_profit[sku_profit['profit_rate'] < 200]
 
 
@@ -165,7 +161,7 @@ average_profit.reset_index(inplace=True)
 
 #merge attributes table and mean profit table based on sku_id
 net_profit_percent = pd.merge(jd,average_profit, how = 'inner', on = 'sku_id')
-#net_profit_percent['profit_rate'] = net_profit_percent['profit_rate'].astype(int)
+
 
 net_profit_percent.drop(['sku_id','web_id'],axis = 1, inplace = True)
 
@@ -194,8 +190,8 @@ rfr = RandomForestRegressor(  n_estimators = 500,
                               criterion = 'mae',
                               bootstrap = True)
 param_grid = {
-'n_estimators':[100,200,300,500],       
-'max_depth':[3,5,8,10],
+'n_estimators':[100,200,500],       
+'max_depth':[3,5,8],
 'min_samples_leaf':[2,4,6],
 'min_samples_split':[4,8,10]
 }
