@@ -321,7 +321,7 @@ def fetch_jd_tmall_brand_mapping(params):
         print('download jd_tmall_brand_mapping failed! \n' + output +'\n')   
     return status
 
-def fetch_app_aicm_jd_std_brand_da(params);:
+def fetch_app_aicm_jd_std_brand_da(params):
     local_path = 'input/' + params['EndDate']
     query = '''
     set hive.cli.print.header=true;
@@ -382,22 +382,120 @@ def run_task_local(params):
         
     return params
 
+def load_date_into_bdp(params):
+    #获取所有scope_id和table
+    scopes = [params['scope_id']]
+    scopes = list(set(scopes))
+    tables = ['scope','switching_prob','sku_in_scope','spendswitch,
+              'cdt','predicted','assortment','impact']
+    filename_dict = {'cdt':'cdt_cn'}
+    dt = params['EndDate']
+    
+
+    #clear every existing assemble directory, and create new one
+    cid3s = set()
+    for scope in scopes:
+        cid3 = scope.split('_')[2]
+        cid3s.add(cid3)
+    for cid3 in cid3s:
+        asb_dir = '/assemble/%s/%s' % (dt,cid3)
+        if os.path.exists(asb_dir):
+            cmd = 'rm -rf %s' % (asb_dir,)
+            (status,output) = commands.getstatusoutput(cmd)
+            if status == 0:
+                print('remove %s success \n') % (asb_dir,)
+            else:
+                print('remove %s failed! %s /n') % (asb_dir, output)
+        os.makedirs(asb_dir)
+        
+    #combine text file by cid3 into assemble/, go through each scope_id
+    for scope in scopes:
+        cid3 = scope.split('_')[2]
+        for table in tables:
+            file_name = filename_dict.get(table)
+            path = 'output/%s/%s/%s.txt' % (dt,scope,file_name)
+            asb_path = 'assemble/%s/%s/%s.txt' %(dt,cid3,file_name)
+            if os.path.exists(path):
+                cmd = 'cat %s >> %s' % (path, asb_path)
+                (status,output) = commands.getstatusoutput(cmd)
+                if status == 0:
+                    print('assemble %s success! \n') % (path,)
+                else:
+                    print('assemble %s failed %s\n') % (path,output)
+
+    #load text file into hive
+    for cid3 in cid3s:
+        for table in tables:
+            file_name = filename_dict.get(table)
+            asb_path = 'assemble/%s/%s/%s.txt' % (dt,cid3,file_name)
+            if os.path.exists(asb_path):
+                query = '''
+                LOAD DATA LOCAL INPATH '%s' OWERWRITE INTO TABLE
+                app.app_cis_ai_slct_%s PARTITION (dt = '%s', cid3 = '%s')
+                ''' % (asb_path, table, dt, cid3)
+                cmd = 'hive -e "%s"' % (query,)
+                print(cmd)
+                (status, output) = commands.getstatusoutput(cmd)
+                if status == 0:
+                    print('load %s success! \n') % (asb_path,)
+                else:
+                    print('load %s failed! %s\n') % (asb_path,output)
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
+if __name__ == '__main__':
+    #read command line arguments
+    n = len(sys.argv) - 1
+    if n < 3:
+        print('Usage: \n  python ai_slct_pipeline.148.py cid3 dt lvl \n')
+        sys.exit()
+    else:
+        cid3 = sys.argv[1]
+        dt = sys.argv[2]
+        lvl = sys.argv[3]
+        
+    
+    #read parameters
+    params = yaml.load(file('params/default.yaml','r'))
+    params['EndDate'] = dt
+    params['scope_type'] = lvl
+    
+    #calculate time frame
+    params = add_time_frame(params)
+    
+    #add category information
+    params = add_category_information(cid3,params)
+    
+    #add scope_id
+    params = add_scope_id(params)
+    
+    #add log file
+    params = add_log_file(params)
+    
+    #add directory if needed
+    create_local_path(params)
+    
+    #download data from bdp.jd.com
+    fetch_gdm_m04_ord_det_sum(params)
+    fetch_gdm_m03_item_sku_da(params)
+    fetch_app_ai_slct_sku(params)
+    fetch_app_si_slct_attributes(params)
+    fetch_app_ai_slct_gmv(params)
+    fetch_app_ai_slct_match(params)
+    fetch_app_cfo_profit_loss_b2c_det(params)
+    fetch_jd_tmall_brand_mapping(params)
+    if new_month(params):
+        fetch_app_aicm_jd_std_brand_da(params)
+        
+    #transfer data to worker
+    p1 = create_param(params)
+    p2 = create_param_brand(params)
+    
+    #run task on worker
+    run_task_local(params)
+    
+    #load text file into bdp hive
+    load_data_into_bdp(params)
 
 
 
