@@ -153,6 +153,24 @@ def main(params):
     sku_profit = sku_profit[sku_profit['profit_rate'] < 200]
     
     
+    #filter profit rate for every sku_id, drop the max and min profit rate
+    sku_id_list = list(sku_profit['sku_id'])
+    my_set = set()
+    for sku_id in sku_id_list:
+        my_set.add(sku_id)
+    unique_sku_id = list(my_set)
+    col = ['sku_id','profit_rate']
+    p = pd.DataFrame(columns = col)
+    
+    
+    for sku_id in unique_sku_id:
+        duplicate_sku_id = sku_profit[sku_profit['sku_id']==sku_id].sort_values('profit_rate', ascending=False)
+        unique = duplicate_sku_id.iloc[1:-1]
+        p = pd.concat([p,unique],axis = 0)
+    p['sku_id'] = p['sku_id'].apply(lambda x: int(x))
+    sku_profit = p
+    
+    
     #extract the mean sku_id profit table
     average_profit = sku_profit.groupby('sku_id').agg({'profit_rate':'mean'})
     average_profit.reset_index(inplace=True)
