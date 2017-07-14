@@ -152,7 +152,41 @@ def main(params):
     sku_profit = sku_profit[sku_profit['profit_rate'] > -70]
     sku_profit = sku_profit[sku_profit['profit_rate'] < 200]
     
+    #calculate the profit_rate records per sku_id
+    sku_count =  sku_profit.groupby('sku_id').count()
+    sku_count = sku_count.reset_index()
+    sku_count['count'] = sku_count['profit_rate']
+    sku_count.drop('profit_rate',axis = 1, inplace = True)
     
+    
+    #filter profit rate for every sku_id, keep the sku_id with records less than 4
+    col = ['sku_id','profit_rate']
+    p = pd.DataFrame(columns = col)
+    
+    fewer_sku_count = sku_count[sku_count['count'] <= 4]
+    unique_sku_id = list(fewer_sku_count['sku_id'])
+    for sku_id in unique_sku_id:
+        duplicate_sku_id = sku_profit[sku_profit['sku_id']==sku_id].sort_values('profit_rate', ascending=False)
+        unique = duplicate_sku_id.iloc[:]
+        p = pd.concat([p,unique],axis = 0)
+    p['sku_id'] = p['sku_id'].apply(lambda x: int(x))
+    
+    
+    
+    #filter profit rate for every sku_id, drop the max2 and min2 profit rate for sku_id with records greater than 4
+    q = pd.DataFrame(columns = col)
+    greater_sku_count = sku_count[sku_count['count'] > 4]
+    unique_sku_id2 = list(greater_sku_count['sku_id'])
+    
+    for sku_id in unique_sku_id2:
+        duplicate_sku_id2 = sku_profit[sku_profit['sku_id']==sku_id].sort_values('profit_rate', ascending=False)
+        unique2 = duplicate_sku_id2.iloc[1:-2]
+        q = pd.concat([q,unique2],axis = 0)
+    q['sku_id'] = q['sku_id'].apply(lambda x: int(x))
+    
+    sku_profit = pd.concat([p,q],axis = 0)
+    
+    '''
     #filter profit rate for every sku_id, drop the max and min profit rate
     sku_id_list = list(sku_profit['sku_id'])
     my_set = set()
@@ -169,7 +203,7 @@ def main(params):
         p = pd.concat([p,unique],axis = 0)
     p['sku_id'] = p['sku_id'].apply(lambda x: int(x))
     sku_profit = p
-    
+    '''
     
     #extract the mean sku_id profit table
     average_profit = sku_profit.groupby('sku_id').agg({'profit_rate':'mean'})
