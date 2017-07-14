@@ -128,29 +128,33 @@ def main(params):
     pop = jd_pop[jd_pop['web_id'] == 1]
     
     #import profit table
-    app_cfo_profit_loss_b2c_det = params['worker']['dir']+'/input/'+params['EndDate']+\ + '/'
-    +params['item_third_cate_cd']+'/app_cfo_profit_loss_b2c_det'
     sku_profit = pd.read_table('app_cfo_profit_loss_b2c_det', sep = '\t', encoding = 'utf-8')
     sku_profit['sku_id'] = sku_profit['item_sku_id']
-    sku_profit.drop(['dt','item_third_cate_name','item_sku_id','cost_tax',
-    'income','grossfit','gross_sales','rebate_amunt_notax',
-    'adv_amount','store_fee','deliver_fee'], axis = 1, inplace = True)
+    sku_profit.drop(['dt','item_third_cate_name','item_sku_id','cost_tax','income','grossfit','gross_sales','rebate_amunt_notax','adv_amount','store_fee','deliver_fee'], axis = 1, inplace = True)
     sku_profit['sku_id'] = sku_profit['sku_id'].apply(lambda x:int(x))
     
     
+    
     #filter sku_profit table
-    sku_profit_1 = sku_profit[sku_profit['gmv'] >= 1 ]
-    sku_profit_2 = sku_profit[sku_profit['gmv'] <= -1 ]
-    sku_profit = pd.concat([sku_profit_1,sku_profit_2],ignore_index = True)
+    sku_profit = sku_profit[sku_profit['gmv'] > 1 ]
     
     
-    #make the profit_rate column
+    #create the profit_rate column
     sku_profit['profit_rate'] = (sku_profit['net_profit']/sku_profit['gmv'])*100
     sku_profit = sku_profit[sku_profit['net_profit'] < sku_profit['gmv']]
-    sku_profit.drop(['net_profit','gmv'], axis =1, inplace = True)
+    sku_profit.drop(['net_profit','gmv'],axis =1,inplace = True)
+    sku_profit = sku_profit[sku_profit['profit_rate'] > -200]
     
-    sku_profit = sku_profit[sku_profit['profit_rate'] > -70]
-    sku_profit = sku_profit[sku_profit['profit_rate'] < 200]
+    
+    ave = np.mean(sku_profit['profit_rate'])
+    std = np.std(sku_profit['profit_rate'])
+    upper = ave + 2.5*std
+    lower = ave - 2.5*std
+    
+    #filter results
+    sku_profit = sku_profit[sku_profit['profit_rate'] > lower]
+    sku_profit = sku_profit[sku_profit['profit_rate'] < upper]
+    
     
     #calculate the profit_rate records per sku_id
     sku_count =  sku_profit.groupby('sku_id').count()
@@ -163,7 +167,7 @@ def main(params):
     col = ['sku_id','profit_rate']
     p = pd.DataFrame(columns = col)
     
-    fewer_sku_count = sku_count[sku_count['count'] <= 4]
+    fewer_sku_count = sku_count[sku_count['count'] <= 4] 
     unique_sku_id = list(fewer_sku_count['sku_id'])
     for sku_id in unique_sku_id:
         duplicate_sku_id = sku_profit[sku_profit['sku_id']==sku_id].sort_values('profit_rate', ascending=False)
@@ -176,34 +180,30 @@ def main(params):
     #filter profit rate for every sku_id, drop the max2 and min2 profit rate for sku_id with records greater than 4
     q = pd.DataFrame(columns = col)
     greater_sku_count = sku_count[sku_count['count'] > 4]
+    greater_sku_count = greater_sku_count[greater_sku_count['count'] <= 12]
     unique_sku_id2 = list(greater_sku_count['sku_id'])
     
     for sku_id in unique_sku_id2:
         duplicate_sku_id2 = sku_profit[sku_profit['sku_id']==sku_id].sort_values('profit_rate', ascending=False)
-        unique2 = duplicate_sku_id2.iloc[1:-2]
+        unique2 = duplicate_sku_id2.iloc[1:-1]
         q = pd.concat([q,unique2],axis = 0)
     q['sku_id'] = q['sku_id'].apply(lambda x: int(x))
     
-    sku_profit = pd.concat([p,q],axis = 0)
-    
-    '''
-    #filter profit rate for every sku_id, drop the max and min profit rate
-    sku_id_list = list(sku_profit['sku_id'])
-    my_set = set()
-    for sku_id in sku_id_list:
-        my_set.add(sku_id)
-    unique_sku_id = list(my_set)
-    col = ['sku_id','profit_rate']
-    p = pd.DataFrame(columns = col)
+    p_q = pd.concat([p,q],axis = 0)
     
     
-    for sku_id in unique_sku_id:
-        duplicate_sku_id = sku_profit[sku_profit['sku_id']==sku_id].sort_values('profit_rate', ascending=False)
-        unique = duplicate_sku_id.iloc[1:-1]
-        p = pd.concat([p,unique],axis = 0)
-    p['sku_id'] = p['sku_id'].apply(lambda x: int(x))
-    sku_profit = p
-    '''
+    o = pd.DataFrame(columns = col)
+    most_sku_count = sku_count[sku_count['count'] > 12]
+    unique_sku_id3 = list(most_sku_count['sku_id'])
+    
+    for sku_id in unique_sku_id3:
+        duplicate_sku_id3 = sku_profit[sku_profit['sku_id']==sku_id].sort_values('profit_rate', ascending=False)
+        unique3 = duplicate_sku_id3.iloc[3:-3]
+        o = pd.concat([o,unique3],axis = 0)
+    o['sku_id'] = o['sku_id'].apply(lambda x: int(x))
+    
+    
+    sku_profit = pd.concat([p_q,o],axis = 0)
     
     #extract the mean sku_id profit table
     average_profit = sku_profit.groupby('sku_id').agg({'profit_rate':'mean'})
