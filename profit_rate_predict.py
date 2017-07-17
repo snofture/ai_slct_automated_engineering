@@ -68,6 +68,20 @@ def main(params):
     +params['item_third_cate_cd']+'/gdm_m04_ord_det_sum'
     gdm_m04_ord_det_sum = pd.read_table('gdm_m04_ord_det_sum', sep='\t',encoding='utf-8')
     gdm_m04_ord_det_sum['sku_id'] = gdm_m04_ord_det_sum['item_sku_id']
+    
+    
+    sale_count = gdm_m04_ord_det_sum.groupby(['sku_id']).agg({'sale_ord_tm':'count'})
+    sale_count = sale_count.reset_index()
+    sale_count['count'] = sale_count['sale_ord_tm']
+    sale_count.drop('sale_ord_tm', axis = 1, inplace = True)
+    
+    
+    valid_sale_count = sale_count[sale_count['count'] > 3]
+    valid_sku_id = list(valid_sale_count['sku_id']) 
+    gdm_m04_ord_det_sum = gdm_m04_ord_det_sum[gdm_m04_ord_det_sum['sku_id'].isin(valid_sku_id)]
+    
+    
+    
     gdm_m04_ord_det_sum = gdm_m04_ord_det_sum.groupby(['sku_id']).agg({'before_prefr_amount':'sum','sale_qtty':'sum'})
     gdm_m04_ord_det_sum = gdm_m04_ord_det_sum.reset_index()
     gdm_m04_ord_det_sum['mean_price'] = gdm_m04_ord_det_sum['before_prefr_amount']/gdm_m04_ord_det_sum['sale_qtty']
@@ -91,11 +105,22 @@ def main(params):
         
     #merge jd_pop_attrs table with sku_price table based on sku_id 
     jd_pop = pd.merge(a_web, gdm_m04_ord_det_sum, how = 'inner', on = 'sku_id')
-    jd_pop = jd_pop.drop_duplicates()
-    
-    
+    jd_pop = jd_pop.drop_duplicates()   
     jd_pop['mean_price'] = jd_pop['mean_price'].apply(lambda x: int(x))
     
+    
+    s = jd_pop.groupby(u'品牌').agg({'sku_id':'count'})
+    s = s.reset_index()
+    s['brand_count'] = s['sku_id']
+    s.drop('sku_id',axis = 1, inplace=True)
+    
+    
+    
+    d = list(s[s['brand_count'] < 100][u'品牌'])
+    f = list(jd_pop[u'品牌'])
+    for i in d:
+        jd_pop.loc[jd_pop[u'品牌'] == i, u'品牌'] = u'其它'
+
     
     #label encoder method to handle discrete/categorical features except continuous features
     for attribute in jd_pop.columns.difference(['mean_price','sku_id','web_id']):
@@ -108,14 +133,14 @@ def main(params):
         (x-jd_pop['mean_price'].mean())/(jd_pop['mean_price'].std()))
     
         
-        
+    '''    
     #handle high cardinality of brand feature using kmeans clustering
     from sklearn.cluster import KMeans
     X = jd_pop[['mean_price',u'品牌']]
     kmeans = KMeans(n_clusters = 11, random_state = 0).fit(X)
     jd_pop[u'品牌'] = kmeans.labels_
     
-    '''
+    
     #use elbow method to find the best number of clusters
     c = range(10,50)
     ks = [KMeans(n_clusters = i) for i in c]
