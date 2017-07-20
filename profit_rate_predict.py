@@ -46,8 +46,23 @@ def main(params):
     a_web = pd.merge(a,web_id,how='inner',on='sku_id')
     a_web = a_web.drop_duplicates()
     
+    
+    #fill nan for brand with u'其它'
+    a_web[u'品牌'] = a_web[u'品牌'].fillna(u'其它')
+    
+    
+   #fill nan with the most frequent one if the missing entries are less than 25% of the column
+    for col in a_web.columns.difference(['sku_id','web_id']):
+        if (np.asscalar(np.int16(pd.isnull(a_web[col]).sum())) / len(a_web[col])) * 100 < 25:
+            a_web[col] = a_web[col].fillna(a_web[col].value_counts().index[0])
+    
+    
+    #fill nan with 'else' if missing entries greater than 25% of the column
+    #a_web = a_web.apply(lambda x: x.fillna('else'))
+    
     #fill nan with the most frequent entry
     a_web = a_web.apply(lambda x: x.fillna(x.value_counts().index[0]))
+    
     
     
     #regular expression, select the last part      
@@ -70,12 +85,13 @@ def main(params):
     gdm_m04_ord_det_sum['sku_id'] = gdm_m04_ord_det_sum['item_sku_id']
     
     
+    #calculate the sale records per sku
     sale_count = gdm_m04_ord_det_sum.groupby(['sku_id']).agg({'sale_ord_tm':'count'})
     sale_count = sale_count.reset_index()
     sale_count['count'] = sale_count['sale_ord_tm']
     sale_count.drop('sale_ord_tm', axis = 1, inplace = True)
     
-    
+    #use only the sku with sale records greater than 3
     valid_sale_count = sale_count[sale_count['count'] > 3]
     valid_sku_id = list(valid_sale_count['sku_id']) 
     gdm_m04_ord_det_sum = gdm_m04_ord_det_sum[gdm_m04_ord_det_sum['sku_id'].isin(valid_sku_id)]
@@ -116,7 +132,7 @@ def main(params):
     
     
     
-    d = list(s[s['brand_count'] < 100][u'品牌'])
+    d = list(s[s['brand_count'] < 5][u'品牌'])
     f = list(jd_pop[u'品牌'])
     for i in d:
         jd_pop.loc[jd_pop[u'品牌'] == i, u'品牌'] = u'其它'
@@ -158,8 +174,7 @@ def main(params):
     sku_profit.drop(['dt','item_third_cate_name','item_sku_id','cost_tax','income','grossfit','gross_sales','rebate_amunt_notax','adv_amount','store_fee','deliver_fee'], axis = 1, inplace = True)
     sku_profit['sku_id'] = sku_profit['sku_id'].apply(lambda x:int(x))
     
-    
-    
+        
     #filter sku_profit table
     sku_profit = sku_profit[sku_profit['gmv'] > 1 ]
     
@@ -171,10 +186,24 @@ def main(params):
     sku_profit = sku_profit[sku_profit['profit_rate'] > -200]
     
     
+    #set the criteria for upper and lower bound dynamically
+    number_of_profit = sku_profit.shape[0]
     ave = np.mean(sku_profit['profit_rate'])
     std = np.std(sku_profit['profit_rate'])
-    upper = ave + 2.5*std
-    lower = ave - 2.5*std
+    
+    
+    if number_of_profit < 500:
+        upper = ave + 2.0 * std
+        lower = ave - 1.0 * std
+    elif (number_of_profit >= 500 and number_of_profit < 15000):
+        upper = ave + 2.25*std
+        lower = ave - 1.25*std
+    elif (number_of_profit >= 15000 and number_of_profit < 35000):
+        upper = ave + 2.75*std
+        lower = ave - 1.75*std
+    else:
+        upper = ave + 2.75*std
+        lower = ave - 2.0*std
     
     #filter results
     sku_profit = sku_profit[sku_profit['profit_rate'] > lower]
@@ -266,7 +295,7 @@ def main(params):
                                   bootstrap = True)
     param_grid = {
     'n_estimators':[100,200,500],       
-    'max_depth':[3,5,8],
+    'max_depth':[5,8,10],
     'min_samples_leaf':[2,4,6],
     'min_samples_split':[4,8,10]
     }
