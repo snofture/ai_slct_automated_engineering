@@ -55,13 +55,14 @@ def main(params):
     for col in a_web.columns.difference(['sku_id','web_id']):
         if (np.asscalar(np.int16(pd.isnull(a_web[col]).sum())) / len(a_web[col])) * 100 < 25:
             a_web[col] = a_web[col].fillna(a_web[col].value_counts().index[0])
-    
+        else:
+            a_web[col] = a_web[col].fillna('else')
     
     #fill nan with 'else' if missing entries greater than 25% of the column
     #a_web = a_web.apply(lambda x: x.fillna('else'))
     
     #fill nan with the most frequent entry
-    a_web = a_web.apply(lambda x: x.fillna(x.value_counts().index[0]))
+    #a_web = a_web.apply(lambda x: x.fillna(x.value_counts().index[0]))
     
     
     
@@ -97,7 +98,7 @@ def main(params):
     gdm_m04_ord_det_sum = gdm_m04_ord_det_sum[gdm_m04_ord_det_sum['sku_id'].isin(valid_sku_id)]
     
     
-    
+    #calculate the mean_price
     gdm_m04_ord_det_sum = gdm_m04_ord_det_sum.groupby(['sku_id']).agg({'before_prefr_amount':'sum','sale_qtty':'sum'})
     gdm_m04_ord_det_sum = gdm_m04_ord_det_sum.reset_index()
     gdm_m04_ord_det_sum['mean_price'] = gdm_m04_ord_det_sum['before_prefr_amount']/gdm_m04_ord_det_sum['sale_qtty']
@@ -139,8 +140,8 @@ def main(params):
 
     
     #label encoder method to handle discrete/categorical features except continuous features
+    le = preprocessing.LabelEncoder()
     for attribute in jd_pop.columns.difference(['mean_price','sku_id','web_id']):
-        le = preprocessing.LabelEncoder()
         jd_pop[attribute] = le.fit_transform(jd_pop[attribute])
     
     
@@ -279,7 +280,45 @@ def main(params):
                                                         test_size=0.30, + \
                                                         random_state = 101)
     
+    #find the best parameter for randomforest regressor model using hyperopt
+    from hyperopt import fmin, tpe, hp, partial
+    from sklearn.ensemble import RandomForestRegressor
+    def objective(args):
+        rfr = RandomForestRegressor(  n_estimators = int(args['n_estimators']), 
+                                      max_features = 'auto',
+                                      max_depth = int(args['max_depth']),
+                                      min_samples_leaf = int(args['min_samples_leaf']),
+                                      min_samples_split = int(args['min_samples_split']),
+                                      oob_score=True,
+                                      n_jobs=-1,
+                                      bootstrap = True)
+
+        rfr.fit(X_train, y_train)
+        predictions = rfr.predict(X_test)
+        return mean_absolute_percentage_error(y_test, predictions)
     
+    space = {'n_estimators':hp.quniform('n_estimators',10, 500,1),
+             'max_depth':hp.quniform('max_depth',1,10,1),
+             'min_samples_leaf':hp.quniform('min_samples_leaf', 1, 4,1),
+             'min_samples_split':hp.quniform('min_samples_split',2, 8,1)}
+
+    algo = partial(tpe.suggest,n_startup_jobs=10)
+    best = fmin(objective,space,algo = algo,max_evals=50)
+        
+    best['n_estimators'] = int(best['n_estimators'])
+    best['max_depth'] = int(best['max_depth'])
+    best['min_samples_leaf'] = int(best['min_samples_leaf'])
+    best['min_samples_split'] = int(best['min_samples_split'])
+    print (best)
+    print objective(best)
+    rf = RandomForestRegressor(**best)
+    rf.fit(X_train,y_train)
+
+    
+    #implement the profit_prediction algorihtm on pop skus
+    pop.drop(['sku_id','web_id'], axis = 1, inplace = True)
+    pop_predictions = rf.predict(pop)
+    '''
     #optimize algotirhm and tune parameter with GridSearchCV
     from sklearn.grid_search import GridSearchCV
     from sklearn.ensemble import RandomForestRegressor
@@ -305,22 +344,7 @@ def main(params):
     #print (CV_rfr.best_params_)
     
     best_model = CV_rfr.best_estimator_
-    #implement RandomForestregressor to solve regression problem    
-    #from sklearn.ensemble import RandomForestRegressor
-    #rfr = RandomForestRegressor(  n_estimators = CV_rfr.best_params_['n_estimators'], 
-    #                              max_features = 'auto',
-    #                              max_depth=CV_rfr.best_params_['max_depth'],
-    #                              min_samples_leaf=CV_rfr.best_params_['min_samples_leaf'],
-    #                              min_samples_split=CV_rfr.best_params_['min_samples_split'],
-    #                              oob_score=True,
-    #                              #random_state = 42,
-    #                              criterion = 'mae',
-    #                              n_jobs=-1,
-    #                              bootstrap = True)
-    #                              #warm_start=False,
-    #                              #max_leaf_nodes = 30)
-    #rfr.fit(X_train, y_train)
-    '''
+    
     predictions = best_model.predict(X_test)
            
     #plt.scatter(y_test,predictions)
@@ -337,17 +361,13 @@ def main(params):
     plt.xticks(range(X_train.shape[1]),X_train.columns, color='r')
     axes[1].bar(range(X_train.shape[1]),rfr.feature_importances_, color= 'b',align = 'center')
     '''
-    
-    #implement the profit_prediction algorihtm on pop skus
-    pop.drop(['sku_id','web_id'], axis = 1, inplace = True)
-    pop_predictions = best_model.predict(pop)
-    pop_predicitons.index.name = 'profit_rate'
+
     
     #save to file
     out_path = params['worker']['dir']+'/output/'+params['EndDate']+'/'+ params['item_third_cate_cd']
     if not os.path.exists(out_path):
         os.makedirs(out_path)
-    pop_predictions.to_csv(out_path+'/profit_rate.txt',header=False,sep='\t',encoding='utf-8',index=False)
+    pop_predictions.to_csv(out_path+'/profit_rate_pred.txt',header=False,sep='\t',encoding='utf-8',index=False)
 
 
 if __name__ == '__main__':
