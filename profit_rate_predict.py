@@ -18,29 +18,45 @@ import yaml
 
 #build MAPE function
 def mean_absolute_percentage_error(y,p):   
-    return np.mean(np.abs(y-p)/y)
+    return np.mean(np.abs((y-p)/y))
 
 def main(params):
     #import jd attributes table
     app_ai_slct_attributes = params['worker']['dir']+'/input/'+params['EndDate']+'/'+ params['item_third_cate_cd']+'/app_ai_slct_attributes'
-    attrs =  pd.read_table(app_ai_slct_attributes,sep = '\t', encoding = 'utf-8')
-    attrs = attrs[['sku_id','attr_name','attr_value','web_id']]
-    attrs = attrs.drop_duplicates()
-    web_id = attrs[['sku_id','web_id']]
+    a =  pd.read_table(app_ai_slct_attributes,sep = '\t', encoding = 'utf-8')
+    a = a[['sku_id','attr_name','attr_value','web_id']]
+    a = a.drop_duplicates()
+    
+    web_id = a[['sku_id','web_id']]
     web_id = web_id.drop_duplicates()
     web_id['sku_id'] = web_id['sku_id'].apply(lambda x: str(x))
     
+    #标准品牌映射
+    def jd_tmall_brand_mapping(a):
+        jd_tmall_brand_mapping = params['worker']['dir']+'/input/'+params['EndDate']+'/'+ params['item_third_cate_cd']+'/jd_tmall_brand_mapping'
+        brand_map = pd.read_table(jd_tmall_brand_mapping, header=0, sep='\t',names=['jd_std_brand','attr_value'],encoding='utf-8')
+        tmall_brand = a[(a['attr_name']==u'品牌') & (a['web_id']==2)]    
+        jd_brand = a[~a.index.isin(tmall_brand.index)]
+        tmall_brand = pd.merge(tmall_brand,brand_map,on='attr_value',how='left') 
+        func=lambda x: x['jd_std_brand'] if x['jd_std_brand'] != '' else x['attr_value']
+        tmall_brand['attr_value'] = tmall_brand.apply(func, axis =1)
+        tmall_brand = tmall_brand.drop('jd_std_brand', axis = 1)
+        a =pd.concat([jd_brand,tmall_brand],axis=0)
+        return a
     
+    attrs = jd_tmall_brand_mapping(a)
+    
+        
     #transform original table to pivot_table 
-    a = pd.pivot_table(attrs, index=['sku_id'], columns=['attr_name'],
+    att = pd.pivot_table(attrs, index=['sku_id'], columns=['attr_name'],
                         values=['attr_value'],fill_value = np.nan, aggfunc='max')
-    a.columns = a.columns.droplevel(level=0)
-    a = a.reset_index(drop=False)
-    a = a.drop_duplicates()
-    a['sku_id'] = a['sku_id'].apply(lambda x: str(x))
+    att.columns = att.columns.droplevel(level=0)
+    att = att.reset_index(drop=False)
+    att = att.drop_duplicates()
+    att['sku_id'] = att['sku_id'].apply(lambda x: str(x))
     
     #to add web_id information
-    a_web = pd.merge(a,web_id,how='inner',on='sku_id')
+    a_web = pd.merge(att,web_id,how='inner',on='sku_id')
     a_web = a_web.drop_duplicates()
     a_web['sku_id'] = a_web['sku_id'].apply(lambda x: str(x))
     
@@ -200,6 +216,7 @@ def main(params):
     
     #set the criteria for upper and lower bound dynamically
     number_of_profit = sku_profit.shape[0]
+    global number_of_profit
     ave = np.mean(sku_profit['profit_rate'])
     std = np.std(sku_profit['profit_rate'])
     
@@ -221,56 +238,58 @@ def main(params):
     sku_profit = sku_profit[sku_profit['profit_rate'] > lower]
     sku_profit = sku_profit[sku_profit['profit_rate'] < upper]
     
+    def control_profit_records(sku_profit):
+        if number_of_profit > 5000:
+            #calculate the profit_rate records per sku_id
+            sku_count =  sku_profit.groupby('sku_id').count()
+            sku_count = sku_count.reset_index()
+            sku_count['count'] = sku_count['profit_rate']
+            sku_count.drop('profit_rate',axis = 1, inplace = True)
+                        
+            #filter profit rate for every sku_id, keep the sku_id with records less than 4
+            col = ['sku_id','profit_rate']
+            p = pd.DataFrame(columns = col)
+            
+            fewer_sku_count = sku_count[sku_count['count'] <= 4] 
+            unique_sku_id = list(fewer_sku_count['sku_id'])
+            for sku_id in unique_sku_id:
+                duplicate_sku_id = sku_profit[sku_profit['sku_id']==sku_id].sort_values('profit_rate', ascending=False)
+                unique = duplicate_sku_id.iloc[:]
+                p = pd.concat([p,unique],axis = 0)
+            p['sku_id'] = p['sku_id'].apply(lambda x: int(x))
+            
+                        
+            #filter profit rate for every sku_id, drop the max2 and min2 profit rate for sku_id with records greater than 4
+            q = pd.DataFrame(columns = col)
+            greater_sku_count = sku_count[sku_count['count'] > 4]
+            greater_sku_count = greater_sku_count[greater_sku_count['count'] <= 12]
+            unique_sku_id2 = list(greater_sku_count['sku_id'])
+            
+            for sku_id in unique_sku_id2:
+                duplicate_sku_id2 = sku_profit[sku_profit['sku_id']==sku_id].sort_values('profit_rate', ascending=False)
+                unique2 = duplicate_sku_id2.iloc[1:-1]
+                q = pd.concat([q,unique2],axis = 0)
+            q['sku_id'] = q['sku_id'].apply(lambda x: int(x))
+            
+            p_q = pd.concat([p,q],axis = 0)
+            
+            
+            o = pd.DataFrame(columns = col)
+            most_sku_count = sku_count[sku_count['count'] > 12]
+            unique_sku_id3 = list(most_sku_count['sku_id'])
+            
+            for sku_id in unique_sku_id3:
+                duplicate_sku_id3 = sku_profit[sku_profit['sku_id']==sku_id].sort_values('profit_rate', ascending=False)
+                unique3 = duplicate_sku_id3.iloc[3:-3]
+                o = pd.concat([o,unique3],axis = 0)
+            o['sku_id'] = o['sku_id'].apply(lambda x: int(x))
+                        
+            sku_profit = pd.concat([p_q,o],axis = 0)
+        else:
+            sku_profit = sku_profit
+        return sku_profit
     
-    if number_of_profit > 5000:
-        #calculate the profit_rate records per sku_id
-        sku_count =  sku_profit.groupby('sku_id').count()
-        sku_count = sku_count.reset_index()
-        sku_count['count'] = sku_count['profit_rate']
-        sku_count.drop('profit_rate',axis = 1, inplace = True)
-        
-        
-        #filter profit rate for every sku_id, keep the sku_id with records less than 4
-        col = ['sku_id','profit_rate']
-        p = pd.DataFrame(columns = col)
-        
-        fewer_sku_count = sku_count[sku_count['count'] <= 4] 
-        unique_sku_id = list(fewer_sku_count['sku_id'])
-        for sku_id in unique_sku_id:
-            duplicate_sku_id = sku_profit[sku_profit['sku_id']==sku_id].sort_values('profit_rate', ascending=False)
-            unique = duplicate_sku_id.iloc[:]
-            p = pd.concat([p,unique],axis = 0)
-        p['sku_id'] = p['sku_id'].apply(lambda x: int(x))
-        
-        
-        
-        #filter profit rate for every sku_id, drop the max2 and min2 profit rate for sku_id with records greater than 4
-        q = pd.DataFrame(columns = col)
-        greater_sku_count = sku_count[sku_count['count'] > 4]
-        greater_sku_count = greater_sku_count[greater_sku_count['count'] <= 12]
-        unique_sku_id2 = list(greater_sku_count['sku_id'])
-        
-        for sku_id in unique_sku_id2:
-            duplicate_sku_id2 = sku_profit[sku_profit['sku_id']==sku_id].sort_values('profit_rate', ascending=False)
-            unique2 = duplicate_sku_id2.iloc[1:-1]
-            q = pd.concat([q,unique2],axis = 0)
-        q['sku_id'] = q['sku_id'].apply(lambda x: int(x))
-        
-        p_q = pd.concat([p,q],axis = 0)
-        
-        
-        o = pd.DataFrame(columns = col)
-        most_sku_count = sku_count[sku_count['count'] > 12]
-        unique_sku_id3 = list(most_sku_count['sku_id'])
-        
-        for sku_id in unique_sku_id3:
-            duplicate_sku_id3 = sku_profit[sku_profit['sku_id']==sku_id].sort_values('profit_rate', ascending=False)
-            unique3 = duplicate_sku_id3.iloc[3:-3]
-            o = pd.concat([o,unique3],axis = 0)
-        o['sku_id'] = o['sku_id'].apply(lambda x: int(x))
-        
-        
-        sku_profit = pd.concat([p_q,o],axis = 0)
+    sku_profit = control_profit_records(sku_profit)
     
     #extract the mean sku_id profit table
     average_profit = sku_profit.groupby('sku_id').agg({'profit_rate':'mean'})
@@ -310,7 +329,7 @@ def main(params):
         predictions = rfr.predict(X_test)
         return mean_absolute_percentage_error(y_test, predictions)
     
-    space = {'n_estimators':hp.quniform('n_estimators',10, 500,10),
+    space = {'n_estimators':hp.quniform('n_estimators',10, 500,1),
              'max_depth':hp.quniform('max_depth',1,10,1),
              'min_samples_leaf':hp.quniform('min_samples_leaf', 1, 4,1),
              'min_samples_split':hp.quniform('min_samples_split',2, 8,1)}
