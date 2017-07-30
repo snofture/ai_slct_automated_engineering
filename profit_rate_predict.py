@@ -33,19 +33,17 @@ def main(params):
     
     #标准品牌映射
     def jd_tmall_brand_mapping(a):
-        jd_tmall_brand_mapping = params['worker']['dir']+'/input/'+params['EndDate']+'/'+ params['item_third_cate_cd']+'/jd_tmall_brand_mapping'
-        brand_map = pd.read_table(jd_tmall_brand_mapping, header=0, sep='\t',names=['jd_std_brand','attr_value'],encoding='utf-8')
-        tmall_brand = a[(a['attr_name']==u'品牌') & (a['web_id']==2)]    
+        brand_map = pd.read_table('jd_tmall_brand_mapping', header=0, sep='\t',names=['jd_std_brand','attr_value'],encoding='utf-8')
+        tmall_brand = a[(a['attr_name']==u'品牌') & (a['web_id']==2)]   
         jd_brand = a[~a.index.isin(tmall_brand.index)]
-        tmall_brand = pd.merge(tmall_brand,brand_map,on='attr_value',how='left') 
-        func=lambda x: x['jd_std_brand'] if x['jd_std_brand'] != '' else x['attr_value']
-        tmall_brand['attr_value'] = tmall_brand.apply(func, axis =1)
-        tmall_brand = tmall_brand.drop('jd_std_brand', axis = 1)
-        a =pd.concat([jd_brand,tmall_brand],axis=0)
+        new_tmall_brand = pd.merge(tmall_brand,brand_map,on='attr_value',how='left')
+        func = lambda x: x['attr_value'] if pd.isnull(x['jd_std_brand']) else x['jd_std_brand']
+        new_tmall_brand['attr_value'] = new_tmall_brand.apply(func, axis =1)
+        new_tmall_brand = new_tmall_brand.drop('jd_std_brand', axis = 1)
+        a =pd.concat([jd_brand,new_tmall_brand],axis=0)
         return a
-    
     attrs = jd_tmall_brand_mapping(a)
-    
+        
         
     #transform original table to pivot_table 
     att = pd.pivot_table(attrs, index=['sku_id'], columns=['attr_name'],
@@ -55,8 +53,14 @@ def main(params):
     att = att.drop_duplicates()
     att['sku_id'] = att['sku_id'].apply(lambda x: str(x))
     
+    
+    #delete the rows with nan values more than half of total columns
+    number_of_columns = att.shape[1]
+    t = int((number_of_columns-1)/2) 
+    drop_null_att = att.dropna(thresh = t)
+    
     #to add web_id information
-    a_web = pd.merge(att,web_id,how='inner',on='sku_id')
+    a_web = pd.merge(drop_null_att,web_id,how='inner',on='sku_id')
     a_web = a_web.drop_duplicates()
     a_web['sku_id'] = a_web['sku_id'].apply(lambda x: str(x))
     
@@ -239,7 +243,7 @@ def main(params):
     sku_profit = sku_profit[sku_profit['profit_rate'] < upper]
     
     def control_profit_records(sku_profit):
-        if number_of_profit > 5000:
+        if number_of_profit > 3000:
             #calculate the profit_rate records per sku_id
             sku_count =  sku_profit.groupby('sku_id').count()
             sku_count = sku_count.reset_index()
