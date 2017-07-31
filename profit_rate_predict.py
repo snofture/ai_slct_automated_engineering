@@ -33,7 +33,8 @@ def main(params):
     
     #标准品牌映射
     def jd_tmall_brand_mapping(a):
-        brand_map = pd.read_table('jd_tmall_brand_mapping', header=0, sep='\t',names=['jd_std_brand','attr_value'],encoding='utf-8')
+        jd_tmall_brand_mapping = params['worker']['dir']+'/input/'+params['EndDate']+'/'+ params['item_third_cate_cd']+'/jd_tmall_brand_mapping'
+        brand_map = pd.read_table(jd_tmall_brand_mapping, header=0, sep='\t',names=['jd_std_brand','attr_value'],encoding='utf-8')
         tmall_brand = a[(a['attr_name']==u'品牌') & (a['web_id']==2)]   
         jd_brand = a[~a.index.isin(tmall_brand.index)]
         new_tmall_brand = pd.merge(tmall_brand,brand_map,on='attr_value',how='left')
@@ -56,7 +57,7 @@ def main(params):
     
     #delete the rows with nan values more than half of total columns
     number_of_columns = att.shape[1]
-    t = int((number_of_columns-1)/2) 
+    t = int((number_of_columns-1)/2) +1
     drop_null_att = att.dropna(thresh = t)
     
     #to add web_id information
@@ -65,35 +66,28 @@ def main(params):
     a_web['sku_id'] = a_web['sku_id'].apply(lambda x: str(x))
     
     #fill nan for brand with u'其它'
-    a_web[u'品牌'] = a_web[u'品牌'].fillna(u'其它')
+    a_web[u'品牌'] = a_web[u'品牌'].fillna(u'缺失')
     
     
-   #fill nan with the most frequent one if the missing entries are less than 25% of the column
+    #fill nan with the most frequent one if the missing entries are less than 25% of the column
     for col in a_web.columns.difference(['sku_id','web_id']):
         if (np.asscalar(np.int16(pd.isnull(a_web[col]).sum())) / len(a_web[col])) * 100 < 25:
             a_web[col] = a_web[col].fillna(a_web[col].value_counts().index[0])
         else:
-            a_web[col] = a_web[col].fillna('else')
+            a_web[col] = a_web[col].fillna(u'其它')
     
-    #fill nan with 'else' if missing entries greater than 25% of the column
-    #a_web = a_web.apply(lambda x: x.fillna('else'))
-    
-    #fill nan with the most frequent entry
-    #a_web = a_web.apply(lambda x: x.fillna(x.value_counts().index[0]))
-    
-    
+   
+    #handle abnormal value
+    for col in a_web.columns.difference(['sku_id','web_id']):
+        a_web[col] = a_web[col].apply(lambda x:x.replace(u'其他',u'其它'))
     
     #regular expression, select the last part      
     for col in a_web.columns.difference(['sku_id','web_id']):
-        a_web[col] = a_web[col].apply(lambda x: re.sub('#\$.*','',x))
+        a_web[col] = a_web[col].apply(lambda x: re.sub('.*#\$','',x))
     
     #phrase split, select the last part
     for col in a_web.columns.difference(['sku_id','web_id']):
         a_web[col] = a_web[col].apply(lambda x:x.split('/')[0])
-    
-    #handle abnormal value
-    for col in a_web.columns.difference(['sku_id','web_id']):
-        a_web[col] = a_web[col].apply(lambda x:x.replace(u'其他',u'其它'))
     
         
     #import sku_price table
@@ -112,7 +106,7 @@ def main(params):
 
     
     #use only the sku with sale records greater than 3
-    valid_sale_count = sale_count[sale_count['count'] > 3]
+    valid_sale_count = sale_count[sale_count['count'] > 2]
     valid_sku_id = list(valid_sale_count['sku_id']) 
     gdm_m04_ord_det_sum = gdm_m04_ord_det_sum[gdm_m04_ord_det_sum['sku_id'].isin(valid_sku_id)]
     
@@ -141,10 +135,10 @@ def main(params):
     '''    
     #import tmall sku_price
     tm_sku_price = params['worker']['dir']+'/input/'+params['EndDate']+ '/'+params['item_third_cate_cd']+'/tm_sku_price'
-    tm_sku_price =  pd.read_table(tm_sku_price,sep='\t',encoding='utf-8')
+    tm_sku_price =  pd.read_table('tm_sku_price',sep='\t',encoding='utf-8')
     tm_sku_price['sku_id'] = tm_sku_price['sku']
-    tm_sku_price.drop('sku', axis = 1, inplace = True)
-    tm_sku_price['sku_id'] = tm_sku_price['sku_id'].apply(lambda x: str(x))    
+    tm_sku_price.drop(['sku','spu'], axis = 1, inplace = True)
+    tm_sku_price['sku_id'] = tm_sku_price['sku_id'].apply(lambda x: str(x)) 
     
     
     #concat jd_pop and tmall price
@@ -152,22 +146,21 @@ def main(params):
     
     #merge jd_pop_attrs table with sku_price table based on sku_id 
     jd_pop = pd.merge(a_web, all_price, how = 'inner', on = 'sku_id')
-    jd_pop = jd_pop.drop_duplicates()   
+    jd_pop = jd_pop.drop_duplicates()
     jd_pop['mean_price'] = jd_pop['mean_price'].apply(lambda x: int(x))
     jd_pop['sku_id'] = jd_pop['sku_id'].apply(lambda x: str(x))
     
-    
+    '''
     s = jd_pop.groupby(u'品牌').agg({'sku_id':'count'})
     s = s.reset_index()
     s['brand_count'] = s['sku_id']
     s.drop('sku_id',axis = 1, inplace=True)
     
-    
-    
-    d = list(s[s['brand_count'] < 5][u'品牌'])
+        
+    d = list(s[s['brand_count'] < 3][u'品牌'])
     for i in d:
         jd_pop.loc[jd_pop[u'品牌'] == i, u'品牌'] = u'其它'
-
+    '''
     
     #label encoder method to handle discrete/categorical features except continuous features
     le = preprocessing.LabelEncoder()
@@ -215,7 +208,7 @@ def main(params):
     sku_profit['profit_rate'] = (sku_profit['net_profit']/sku_profit['gmv'])*100
     sku_profit = sku_profit[sku_profit['net_profit'] < sku_profit['gmv']]
     sku_profit.drop(['net_profit','gmv'],axis =1,inplace = True)
-    sku_profit = sku_profit[sku_profit['profit_rate'] > -200]
+    sku_profit = sku_profit[sku_profit['profit_rate'] > -150]
     
     
     #set the criteria for upper and lower bound dynamically
