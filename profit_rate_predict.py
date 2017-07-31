@@ -41,7 +41,7 @@ def main(params):
         func = lambda x: x['attr_value'] if pd.isnull(x['jd_std_brand']) else x['jd_std_brand']
         new_tmall_brand['attr_value'] = new_tmall_brand.apply(func, axis =1)
         new_tmall_brand = new_tmall_brand.drop('jd_std_brand', axis = 1)
-        a =pd.concat([jd_brand,new_tmall_brand],axis=0)
+        a =pd.concat([jd_brand,new_tmall_brand],axis=0).drop_duplicates()
         return a
     attrs = jd_tmall_brand_mapping(a)
         
@@ -109,7 +109,7 @@ def main(params):
     valid_sale_count = sale_count[sale_count['count'] > 2]
     valid_sku_id = list(valid_sale_count['sku_id']) 
     gdm_m04_ord_det_sum = gdm_m04_ord_det_sum[gdm_m04_ord_det_sum['sku_id'].isin(valid_sku_id)]
-    
+    gdm_m04_ord_det_sum = gdm_m04_ord_det_sum.drop_duplicates()
     
     #calculate the mean_price
     gdm_m04_ord_det_sum = gdm_m04_ord_det_sum.groupby(['sku_id']).agg({'before_prefr_amount':'sum','sale_qtty':'sum'})
@@ -135,14 +135,14 @@ def main(params):
     '''    
     #import tmall sku_price
     tm_sku_price = params['worker']['dir']+'/input/'+params['EndDate']+ '/'+params['item_third_cate_cd']+'/tm_sku_price'
-    tm_sku_price =  pd.read_table('tm_sku_price',sep='\t',encoding='utf-8')
+    tm_sku_price =  pd.read_table(tm_sku_price, sep='\t',encoding='utf-8')
     tm_sku_price['sku_id'] = tm_sku_price['sku']
-    tm_sku_price.drop(['sku','spu'], axis = 1, inplace = True)
+    tm_sku_price.drop(['sku'], axis = 1, inplace = True)
     tm_sku_price['sku_id'] = tm_sku_price['sku_id'].apply(lambda x: str(x)) 
     
     
     #concat jd_pop and tmall price
-    all_price = pd.concat([gdm_m04_ord_det_sum, tm_sku_price], axis = 0)
+    all_price = pd.concat([gdm_m04_ord_det_sum, tm_sku_price], axis = 0).drop_duplicates()
     
     #merge jd_pop_attrs table with sku_price table based on sku_id 
     jd_pop = pd.merge(a_web, all_price, how = 'inner', on = 'sku_id')
@@ -197,19 +197,18 @@ def main(params):
     sku_profit = pd.read_table(app_cfo_profit_loss_b2c_det, sep = '\t', encoding = 'utf-8')
     sku_profit['sku_id'] = sku_profit['item_sku_id']
     sku_profit.drop(['dt','item_third_cate_name','item_sku_id','cost_tax','income','grossfit','gross_sales','rebate_amunt_notax','adv_amount','store_fee','deliver_fee'], axis = 1, inplace = True)
-    sku_profit['sku_id'] = sku_profit['sku_id'].apply(lambda x:int(x))
+    sku_profit['sku_id'] = sku_profit['sku_id'].apply(lambda x:str(x))
     
         
     #filter sku_profit table
     sku_profit = sku_profit[sku_profit['gmv'] > 1 ]
-    
+    sku_profit = sku_profit[sku_profit['net_profit'] < sku_profit['gmv']]
     
     #create the profit_rate column
     sku_profit['profit_rate'] = (sku_profit['net_profit']/sku_profit['gmv'])*100
-    sku_profit = sku_profit[sku_profit['net_profit'] < sku_profit['gmv']]
     sku_profit.drop(['net_profit','gmv'],axis =1,inplace = True)
     sku_profit = sku_profit[sku_profit['profit_rate'] > -150]
-    
+    sku_profit = sku_profit[sku_profit['profit_rate'] != 0]
     
     #set the criteria for upper and lower bound dynamically
     number_of_profit = sku_profit.shape[0]
@@ -345,14 +344,14 @@ def main(params):
 
     
     #implement the profit_prediction algorihtm on pop_tmall skus
-    pop_tmall_sku = pop_tmall[['sku_id','web_id']]
+    pop_tmall_sku = pop_tmall['sku_id']
     pop_tmall_sku = pop_tmall_sku.reset_index()
     pop_tmall_sku.drop('index',axis=1,inplace=True)
     pop_tmall.drop(['sku_id','web_id'], axis = 1, inplace = True)
     pop_predictions = rf.predict(pop_tmall)
     profit_predict = pd.DataFrame({'profit_rate': pop_predictions.tolist()})
     profit_rate_predict = pd.concat([pop_tmall_sku,profit_predict],axis = 1, ignore_index = True)
-    profit_rate_predict.columns = ['sku_id','web_id','profit_rate']
+    profit_rate_predict.columns = ['item_sku_id','profit_rate']
     '''
     #optimize algotirhm and tune parameter with GridSearchCV
     from sklearn.grid_search import GridSearchCV
@@ -402,7 +401,7 @@ def main(params):
     out_path = params['worker']['dir']+'/output/'+params['EndDate']+'/'+ params['scope_id']
     if not os.path.exists(out_path):
         os.makedirs(out_path)
-    profit_rate_predict.to_csv(out_path+'/profit_rate_predict.txt',header=False,sep='\t',encoding='utf-8',index=False)
+    profit_rate_predict.to_csv(out_path+'/profit_rate_predict',header='infer',sep='\t',encoding='utf-8',index=False)
 
 
 if __name__ == '__main__':
