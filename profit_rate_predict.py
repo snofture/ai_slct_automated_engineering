@@ -35,6 +35,17 @@ def jd_tmall_brand_mapping(a):
     return a
 
 
+#transform attributes table to pivot_table
+def pivot_transform(attrs):    
+    att = pd.pivot_table(attrs, index=['sku_id'], columns=['attr_name'],
+                    values=['attr_value'],fill_value = np.nan, aggfunc='max')
+    att.columns = att.columns.droplevel(level=0)
+    att = att.reset_index(drop=False)
+    att = att.drop_duplicates()
+    att['sku_id'] = att['sku_id'].apply(lambda x: str(x))
+    return att
+
+
 #删除缺失超过半数的样本数据
 def del_rows_missing_values(att):
     number_of_columns = att.shape[1]
@@ -83,6 +94,16 @@ def fil_price_without_recods(gdm_m04_ord_det_sum):
     valid_sku_id = list(valid_sale_count['sku_id']) 
     gdm_m04_ord_det_sum = gdm_m04_ord_det_sum[gdm_m04_ord_det_sum['sku_id'].isin(valid_sku_id)]
     gdm_m04_ord_det_sum = gdm_m04_ord_det_sum.drop_duplicates()
+    return gdm_m04_ord_det_sum
+
+
+#calculate the mean_price
+def cal_mean_price(gdm_m04_ord_det_sum):
+    gdm_m04_ord_det_sum = gdm_m04_ord_det_sum.groupby(['sku_id']).agg({'before_prefr_amount':'sum','sale_qtty':'sum'})
+    gdm_m04_ord_det_sum = gdm_m04_ord_det_sum.reset_index()
+    gdm_m04_ord_det_sum['sku_id'] = gdm_m04_ord_det_sum['sku_id'].apply(lambda x: str(x))
+    gdm_m04_ord_det_sum['mean_price'] = gdm_m04_ord_det_sum['before_prefr_amount']/gdm_m04_ord_det_sum['sale_qtty']
+    gdm_m04_ord_det_sum.drop(['before_prefr_amount','sale_qtty'], axis = 1, inplace = True)
     return gdm_m04_ord_det_sum
 
 
@@ -184,6 +205,25 @@ def control_profit_records(sku_profit):
     return sku_profit
 
 
+#extract the mean sku_id profit table
+def extract_mean_profit(sku_profit):
+    average_profit = sku_profit.groupby('sku_id').agg({'profit_rate':'mean'})
+    average_profit.reset_index(inplace=True)
+    average_profit['sku_id'] = average_profit['sku_id'].apply(lambda x: int(x))
+    average_profit['sku_id'] = average_profit['sku_id'].apply(lambda x: str(x))
+    return average_profit
+
+
+#extract_pop_tmall_sku_id
+def extract_pop_tmall_sku_id(pop_tmall):
+    pop_tmall_sku_id = pop_tmall['sku_id']
+    pop_tmall_sku_id = pop_tmall_sku_id.reset_index()
+    pop_tmall_sku_id.drop('index',axis=1,inplace=True)
+    pop_tmall_sku_id = pop_tmall_sku_id.rename(columns={'sku_id':'item_sku_id'})
+    pop_tmall_sku_id = pop_tmall_sku_id.drop_duplicates()
+    return pop_tmall_sku_id
+
+
 #训练模型
 def train_model(net_profit_percent):
     #train_test_split
@@ -227,6 +267,15 @@ def train_model(net_profit_percent):
     return rf
 
 
+#filter result sku
+def filter_result_sku(app_ai_slct_sku,profit_rate_predict):
+    circle = pd.read_table(app_ai_slct_sku, sep='\t',encoding='utf-8',dtype = {'sku_id':str})
+    circle = circle.rename(columns = {'sku_id':'item_sku_id'})['item_sku_id'].drop_duplicates()
+    circle = circle.to_frame()
+    profit_rate_predict = pd.merge(profit_rate_predict,circle,on='item_sku_id',how='inner')
+    return profit_rate_predict
+
+
 def main(params):
     #import jd attributes table
     app_ai_slct_attributes = params['worker']['dir']+'/input/'+params['EndDate']+'/'+ params['item_third_cate_cd']+'/app_ai_slct_attributes'
@@ -238,17 +287,8 @@ def main(params):
     web_id = web_id.drop_duplicates()
     web_id['sku_id'] = web_id['sku_id'].apply(lambda x: str(x))
         
-    attrs = jd_tmall_brand_mapping(a)        
-        
-    #transform original table to pivot_table 
-    att = pd.pivot_table(attrs, index=['sku_id'], columns=['attr_name'],
-                        values=['attr_value'],fill_value = np.nan, aggfunc='max')
-    att.columns = att.columns.droplevel(level=0)
-    att = att.reset_index(drop=False)
-    att = att.drop_duplicates()
-    att['sku_id'] = att['sku_id'].apply(lambda x: str(x))
-    
-    
+    attrs = jd_tmall_brand_mapping(a)            
+    att = pivot_transform(attrs)
     drop_null_att = del_rows_missing_values(att)
     
     #to add web_id information
@@ -270,14 +310,7 @@ def main(params):
 
     
     gdm_m04_ord_det_sum = fil_price_without_recods(gdm_m04_ord_det_sum)
-    
-    #calculate the mean_price
-    gdm_m04_ord_det_sum = gdm_m04_ord_det_sum.groupby(['sku_id']).agg({'before_prefr_amount':'sum','sale_qtty':'sum'})
-    gdm_m04_ord_det_sum = gdm_m04_ord_det_sum.reset_index()
-    gdm_m04_ord_det_sum['sku_id'] = gdm_m04_ord_det_sum['sku_id'].apply(lambda x: str(x))
-    gdm_m04_ord_det_sum['mean_price'] = gdm_m04_ord_det_sum['before_prefr_amount']/gdm_m04_ord_det_sum['sale_qtty']
-    gdm_m04_ord_det_sum.drop(['before_prefr_amount','sale_qtty'], axis = 1, inplace = True)
-        
+    gdm_m04_ord_det_sum = cal_mean_price(gdm_m04_ord_det_sum)
     '''
     #import sku_price table
     sku_price = params['worker']['dir']+'/input/'+params['EndDate']+'/'+params['item_third_cate_cd']+'/sku_price'
@@ -335,8 +368,8 @@ def main(params):
     sku_profit['sku_id'] = sku_profit['sku_id'].apply(lambda x:str(x))
         
     #extract self_sku_profit rate 
-    self_sku_profit = cal_self_sku_profit(sku_profit)
-        
+    self_sku_profit = cal_self_sku_profit(sku_profit)  
+      
     #filter sku_profit table
     sku_profit = sku_profit[sku_profit['gmv'] > 1 ]
     sku_profit = sku_profit[sku_profit['net_profit'] < sku_profit['gmv']]
@@ -344,7 +377,6 @@ def main(params):
     #create the profit_rate column
     sku_profit['profit_rate'] = (sku_profit['net_profit']/sku_profit['gmv'])*100
     sku_profit.drop(['net_profit','gmv'],axis =1,inplace = True)
-    #sku_profit = sku_profit[sku_profit['profit_rate'] > -150]
     sku_profit = sku_profit[sku_profit['profit_rate'] != 0]
     
     
@@ -354,13 +386,7 @@ def main(params):
     
     #sku_profit = upper_lower_bound_for_profit_rate(sku_profit)     
     sku_profit = control_profit_records(sku_profit)
-    
-    #extract the mean sku_id profit table
-    average_profit = sku_profit.groupby('sku_id').agg({'profit_rate':'mean'})
-    average_profit.reset_index(inplace=True)
-    average_profit['sku_id'] = average_profit['sku_id'].apply(lambda x: int(x))
-    average_profit['sku_id'] = average_profit['sku_id'].apply(lambda x: str(x))
-    
+    average_profit = extract_mean_profit(sku_profit)
     
     #merge attributes table and mean profit table based on sku_id
     net_profit_percent = pd.merge(jd,average_profit, how = 'inner', on = 'sku_id')
@@ -369,15 +395,9 @@ def main(params):
     net_profit_percent.drop(['sku_id','web_id'],axis = 1, inplace = True)
     net_profit_percent = net_profit_percent[net_profit_percent['profit_rate'] != 0]
     
-               
+
+    pop_tmall_sku_id = extract_pop_tmall_sku_id(pop_tmall)
     #implement the profit_prediction algorihtm on pop_tmall skus
-    pop_tmall_sku_id = pop_tmall['sku_id']
-    pop_tmall_sku_id = pop_tmall_sku_id.reset_index()
-    pop_tmall_sku_id.drop('index',axis=1,inplace=True)
-    pop_tmall_sku_id = pop_tmall_sku_id.rename(columns={'sku_id':'item_sku_id'})
-    pop_tmall_sku_id = pop_tmall_sku_id.drop_duplicates()
-    
-    
     pop_tmall.drop(['sku_id','web_id'], axis = 1, inplace = True)
     pop_tmall_predictions = train_model(net_profit_percent).predict(pop_tmall)
 
@@ -389,15 +409,10 @@ def main(params):
         
     #concat self sku profit and predicted pop/tmall sku profit
     profit_rate_predict = pd.concat([profit_rate_predict,self_sku_profit],axis=0)
-
     
-    #filter result sku
+    #filter result sku  
     app_ai_slct_sku = params['worker']['dir']+'/input/'+params['EndDate']+ '/'+params['item_third_cate_cd']+'/app_ai_slct_sku'
-    circle = pd.read_table(app_ai_slct_sku, sep='\t',encoding='utf-8',dtype = {'sku_id':str})
-    circle = circle.rename(columns = {'sku_id':'item_sku_id'})['item_sku_id'].drop_duplicates()
-    circle = circle.to_frame()
-    profit_rate_predict=pd.merge(profit_rate_predict,circle,on='item_sku_id',how='inner')
-    
+    profit_rate_predict = filter_result_sku(app_ai_slct_sku,profit_rate_predict)
             
     #save to file
     out_path = params['worker']['dir']+'/output/'+params['EndDate']+'/'+ params['scope_id']
