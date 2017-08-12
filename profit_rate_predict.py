@@ -425,7 +425,7 @@ if __name__ == '__main__':
     #read command line arguments
     n = len(sys.argv) - 1
     if n < 1:
-        print('Usage:\n    pyhton profit_rate_predict.py param_file\n')
+        print('Usage:\n    python profit_rate_predict.py param_file\n')
         sys.exit()
     else:
         param_file = sys.argv[1]
